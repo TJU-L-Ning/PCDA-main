@@ -1,7 +1,6 @@
 import os
 import sys 
 import logging 
-
 import torch 
 import random 
 import numpy as np 
@@ -15,7 +14,6 @@ def set_random_seed(seed=0):
     if torch.cuda.is_available():
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
-        
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
@@ -28,38 +26,27 @@ def Entropy(input_):
 
 def log_args(args):
     s = "\n==========================================\n"
-    
     s += ("python" + " ".join(sys.argv) + "\n")
-    
     for arg, content in args.__dict__.items():
         s += "{}:{}\n".format(arg, content)
-    
     s += "==========================================\n"
-    
     return s
 
 def set_logger(args, log_name="train_log.txt"):
-    
-    # creating logger.
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.DEBUG)
-    
-    # file logger handler
+
     if args.test:
-        # Append the test results on existing logging file.
         file_handler = logging.FileHandler(os.path.join(args.save_dir, log_name), mode="a")
         file_format = logging.Formatter("%(message)s")
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(file_format)
     else:
-        # Init the logging file.
         file_handler = logging.FileHandler(os.path.join(args.save_dir, log_name), mode="w")
-        
         file_format = logging.Formatter("%(asctime)s [%(levelname)s] - %(message)s")
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(file_format)
     
-    # terminal logger handler
     terminal_handler = logging.StreamHandler()
     terminal_format = logging.Formatter("%(asctime)s [%(levelname)s] - %(message)s")
     terminal_handler.setLevel(logging.INFO)
@@ -74,13 +61,6 @@ def set_logger(args, log_name="train_log.txt"):
 
 def get_acc(args, class_list, gt_label_all, pred_cls_all, open_flag=True,pred_unc_all=None):
     
-    # class_list: 解读
-    #   :source [0, 1, ..., N_share - 1, ...,           N_share + N_src_private - 1]   ###10+7-1=16
-    #   :target [0, 1, ..., N_share - 1, N_share + N_src_private + N_tar_private -1]   ###10+7+4-1=20
-    # gt_label_all [N]
-    # pred_cls_all [N, C]
-    # pred_unc_all [N], if exists. [0~1.0]
-    
     per_class_num = np.zeros((len(class_list)))
     per_class_correct = np.zeros_like(per_class_num)
     pred_label_all = torch.max(pred_cls_all, dim=1)[1] #[N]
@@ -89,34 +69,21 @@ def get_acc(args, class_list, gt_label_all, pred_cls_all, open_flag=True,pred_un
     
 
     
-    if open_flag: ##TRUE
+    if open_flag:
         cls_num = pred_cls_all.shape[1]
-        
         if pred_unc_all is None:
-            # If there is not pred_unc_all tensor,
-            # We normalize the Shannon entropy to [0, 1] to denote the uncertainty.
             pred_unc_all = Entropy(pred_cls_all)/np.log(cls_num)# [N]
-
         unc_idx = torch.where(pred_unc_all > 0.9)[0]
-        pred_label_all[unc_idx] = cls_num # set these pred results to unknown
-
-
-
+        pred_label_all[unc_idx] = cls_num 
     for i, label in enumerate(class_list):
         label_idx = torch.where(gt_label_all == label)[0]
         correct_idx = torch.where(pred_label_all[label_idx] == label)[0]
-
         per_class_num[i] = float(len(label_idx))
         per_class_correct[i] = float(len(correct_idx))
     per_class_acc = per_class_correct / (per_class_num + 1e-5)
-
-
-    print(per_class_acc)
     known_acc = per_class_acc[:-1].mean()
     unknown_acc = per_class_acc[-1]
     h_score = 2 * known_acc * unknown_acc / (known_acc + unknown_acc + 1e-5)
-
-
     return h_score, known_acc, unknown_acc, per_class_acc
     
 class CrossEntropyLabelSmooth(nn.Module):
@@ -147,14 +114,10 @@ class CrossEntropyLabelSmooth(nn.Module):
             log_probs = torch.log(inputs)
         else:
             log_probs = self.logsoftmax(inputs)
-        
         if inputs.shape != targets.shape:
-            # this means that the target data shape is (B,)
             targets = torch.zeros_like(inputs).scatter(1, targets.unsqueeze(1), 1)
-        
         targets = (1 - self.epsilon) * targets + self.epsilon / self.num_classes
         loss = (- targets * log_probs).sum(dim=1)
-         
         if self.reduction:
             return loss.mean()
         else:
